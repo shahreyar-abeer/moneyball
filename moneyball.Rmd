@@ -1,0 +1,670 @@
+---
+title: "Moneyball analysis in R."
+author: "Zauad Shahreer Abeer"
+date: "April 22, 2018"
+output:
+  html_document:
+    css: ./style.css
+    df_print: paged
+    highlited: tango
+    theme: lumen
+    toc: yes
+    toc_float: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+	echo = TRUE,
+	message = FALSE,
+	warning = FALSE
+)
+```
+
+## Introduction  {.tabset .tabset-fade .tabset-pills}
+
+The purpose of this assignment is to analyze baseball team data from 1871 to 2006 in order to predict the number of wins that a team will register in a regular season. Simple multivariate regression models will be used for the purpose. The models will be generated using variable selections techniques such as Forward, Backward or Stepwise selection. The best model will be selected and will be further analyzed to see if predictions can be made or further analysis is necessary.  
+
+## TASK 1 - Development of base model  {.tabset .tabset-fade .tabset-pills}
+
+### EDA and data cleaning  
+
+At first, let's get a feel of the data
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+library(DataExplorer)
+library(tinytex)
+
+data = read.csv('./MoneyBall.csv')
+str(data)
+data$INDEX = NULL
+```  
+
+We observe that there are 17 variables. The *TARGET_WINS* is the variable we are trying to predict using the Batting, Pitching and Fielding statistics. We will remove the index variable because we won't need it for the purpose of modeling.  
+
+Next, Let's have a look at how the variables are distributed in the data.
+
+```{r echo=FALSE, fig.height=6, fig.width=10}
+plot_histogram(data[,1:4], title = 'Fig-1:Histograms of the predictors')
+plot_histogram(data[,5:8])
+plot_histogram(data[,9:12])
+plot_histogram(data[,13:16])
+```  
+
+It is seen that most of the variables are approximately normally distributed with a few exceptions. It looks like *Hits allowed by pitchers*, *Walks allowed by pitchers*, *Fielding Errors* and *Pitching Strike Outs* are somewhat skewed to the right. We may need to transform them before fitting in the model.
+
+The summaries and boxplots of the variables should help us understand the variables a bit more.
+
+```{r echo=FALSE}
+summary(data)
+boxplot(data, las = 2, main = 'Fig-2: Boxplots of the predictors')
+```  
+
+
+It looks like the *Hits allowed by pitchers* and *Pitching Strike Outs* variables are very widely spread and skewed to the right.
+ 
+We will now check the data for missing values.  
+
+```{r echo=FALSE}
+plot_missing(data, title = 'Fig-3: Missing value proportions')
+
+# treating missing values
+# function to replace missing values by mean or median
+replace_by_function = function(variable, FUN){
+  variable[is.na(variable)] = FUN(variable, na.rm = T)
+  return(variable)
+}
+
+data$TEAM_BATTING_SO = replace_by_function(data$TEAM_BATTING_SO, mean)
+data$TEAM_PITCHING_SO = replace_by_function(data$TEAM_PITCHING_SO, median)
+data$TEAM_BASERUN_SB = replace_by_function(data$TEAM_BASERUN_SB, median)
+data$TEAM_FIELDING_DP = replace_by_function(data$TEAM_FIELDING_DP, mean)
+data$TEAM_BASERUN_CS = replace_by_function(data$TEAM_BASERUN_CS, mean)
+
+data$TEAM_BATTING_HBP = NULL
+```  
+
+The above plot shows that there are 92% missing values in *Batters hit by pitch*. We are going to remove this variable from our model. The rest of the missing value proportions are not too great and we will impute the missing values to deal with them. Specifically, the missing values will be replaced by the mean if the variable is approximately normal, and they will be replaced by the median if they are skewed.  
+
+We will take log of the skewed variables in order to perform the analysis.  
+
+The boxplots below show the distributions of the variables after the transformations.
+
+```{r echo=FALSE}
+data$TEAM_PITCHING_H = log(data$TEAM_PITCHING_H)
+data$TEAM_PITCHING_SO = log(data$TEAM_PITCHING_SO)
+data$TEAM_PITCHING_BB = log(data$TEAM_PITCHING_BB)
+data$TEAM_FIELDING_E = log(data$TEAM_FIELDING_E)
+
+data$TEAM_PITCHING_BB[data$TEAM_PITCHING_BB == -Inf] = 0
+data$TEAM_PITCHING_SO[data$TEAM_PITCHING_SO == -Inf] = 0
+
+
+boxplot(data, col = 'dark grey', las = 2,
+        main = 'Fig-4: Boxplots of the transformed predictors')
+```  
+
+It looks like the variables are quite manageable now and we may fit the model.  
+We now have a look at how the variables are correlated with the *Target wins* and within themselves in the following plots.
+
+```{r echo=FALSE, fig.height=8, fig.width=8}
+plot_scatterplot(data, by = 'TARGET_WINS')
+plot_correlation(data, title = 'Fig-5: Correlation matrix')
+```
+
+The correlation matrix shows that *Target wins* is the most correlated with *Base hits by batters(0.39)*. The rest of the correlations are rather tame. There are some highly correlated predictors and they are pretty intuitive. Such as *Fielding Errors* and *Hits allowed by pitchers* are likely to be correlated, since more allowed hits will lead to more fielding errors.  
+  
+
+
+### Modeling Approach  
+
+We now fit a regression model with the *TARGET_WINS* as depenedent and the remaining variables as predictors. The *Backward* selection method is applied for the purpose.
+
+```{r message=FALSE, warning=FALSE, include=FALSE, paged.print=TRUE}
+library(MASS)
+
+fit = lm(TARGET_WINS ~ ., data = data)
+base_model = stepAIC(fit, direction = 'backward')
+``` 
+
+```{r echo=FALSE}
+summary(base_model)
+```  
+
+The fitted model is:
+
+TARGET_WINS = 73.45 + 0.045  TEAM_BATTING_H - 0.02  TEAM_BATTING_2B + 0.11 TEAM_BATTING_3B + 0.05 * TEAM_BATTING_HR + 0.01 TEAM_BATTING_BB - 0.005 TEAM_BATTING_SO + 0.03  TEAM_BASERUN_SB- 9.95 log(TEAM_FIELDING_E) - 0.13  TEAM_FIELDING_DP  
+
+
+The coefficient of *TEAM_BATTING_H* is .045 means that the *TARGET_WINS* increases by .045 unit one the average for an unit increase in *TEAM_BATTING_H* while the other factors remain constat. This goes with our expectation that wins should increase as the base hits by batters increase.
+Similar is the case with *TEAM_BATTING_3B*, *TEAM_BATTING_HR*, *TEAM_BATTING_BB* and *TEAM_BASERUN_SB*. Wins should increase as Triples, Walks, Homeruns and Stolen Bases increase. They all have a positive coefficient and are consistent with our expectations.  
+
+On the other hand, *TARGET_WINS* decreases by *9.95* units on the average as the log of *TEAM_FIELDING_E* increases by an unit, other factors remaining constant. This is also consistent with our natural way of thought because we all know *catches win matches!*. *TEAM_BATTING_SO* also have negative slopes which indicate that wins decrease as Batting Strike Outs increase. This is also in association with our expectation.  
+
+The odd ones in the model are *TEAM_BATTING_2B* and *TEAM_FIELDING_DP*, both of which should have a positive impact on wins but rather the model shows a negative association. This is incosistent with our expectations. The reason behind this abnormality is not known and further investigation is required to understand this anomaly. 
+
+The adjusted $R^2$ value is .31 which indicates that only 31% of the total variation in *TARGET_WINS* is explained by the model.  
+
+## TASK 2 - The Parsimony Model  {.tabset .tabset-fade .tabset-pills}
+
+
+We now have a look at the correlation between the predictors in the base model and *TARGET_WINS*  
+
+```{r echo=FALSE, fig.height=6, fig.width=6}
+parsimony_data = data[ , c(1:8, 14, 15)]
+plot_correlation(parsimony_data, title = 'Fig-6: Correlation Matrix of Base Model Predictors')
+```  
+
+The correlations of *TEAM_BATTING_SO* and *TEAM_FIELDING_DP* seems quite low.
+So we are removing them and keeping the remaining 7 with higher correlations.
+
+```{r echo=FALSE}
+parsimony_data = parsimony_data[ , -c(7, 10)]
+
+fit2 = lm(TARGET_WINS ~ ., data = parsimony_data)
+summary(fit2)
+```  
+  
+The fitted model is:  
+TARGET_WINS = 53.54 + 0.05 TEAM_BATTING_H - 0.02  TEAM_BATTING_2B + 0.11 TEAM_BATTING_3B + 0.03 TEAM_BATTING_HR + 0.01 TEAM_BATTING_BB + 0.03 TEAM_BASERUN_SB - 9.74  log(TEAM_FIELDING_E)  
+
+This regression is quite similar to the previous one. The signs of the coeffincients are similar and the values are quite close too. So they can be interpreted as was done previously. For example, the coefficient of *BATTING_BASERUN_SB* is 0.03 which indicates that the wins increase by 0.03 units on the average for an unit increase in *BATTING_BASERUN_SB* i.e. Stolen bases while other factors remain constat. This goes with our expectations.  
+
+The adjusted $R^2$ value of 0.28 indicates that only 28% of the variation in *TARGET_WINS* is explained by the parsimony model.  
+
+## TASK 3 - Contextual Modeling Approach  {.tabset .tabset-fade .tabset-pills}
+
+In the contextual modeling approach we determine the games that have similar statistics to the 'modern era' and apply a regression on those games only. To accomplish this, we first transformed the yearly data to data per game by dividing by 162. Next, we obtained the bounds of the production variables(hits, strike-outs etc.) in the modern era. For example, the base hits by batters in the modern game ranges more or less from 8.25 - 9.3 / game (Note that these statistics are approximate). These statistics were obtained from the [Baseball Refernece](https://www.baseball-reference.com/) page.  
+We then fit a linear regression on those games only which were selected as a 'modern era' game for the purpose of predicting the *TARGET_WINS*
+
+```{r echo=FALSE}
+## HELPER FUNCTIONS
+# function that cleans the data, replaces Null values by mean/median
+# takes log of the skewed variables.
+
+clean_and_transform = function(data){
+  # treating missing values
+  # function to replace missing values by mean or median
+  replace_by_function = function(variable, FUN){
+    variable[is.na(variable)] = FUN(variable, na.rm = T)
+    return(variable)
+  }
+  
+  # replacing the missing values
+  data$TEAM_BATTING_SO = replace_by_function(data$TEAM_BATTING_SO, mean)
+  data$TEAM_PITCHING_SO = replace_by_function(data$TEAM_PITCHING_SO, median)
+  data$TEAM_BASERUN_SB = replace_by_function(data$TEAM_BASERUN_SB, median)
+  data$TEAM_FIELDING_DP = replace_by_function(data$TEAM_FIELDING_DP, mean)
+  data$TEAM_BASERUN_CS = replace_by_function(data$TEAM_BASERUN_CS, mean)
+  
+  # transforming the variables logarithmically
+  data$TEAM_PITCHING_H = log(data$TEAM_PITCHING_H)
+  data$TEAM_PITCHING_SO = log(data$TEAM_PITCHING_SO)
+  data$TEAM_PITCHING_BB = log(data$TEAM_PITCHING_BB)
+  data$TEAM_FIELDING_E = log(data$TEAM_FIELDING_E)
+  
+  data$TEAM_PITCHING_BB[data$TEAM_PITCHING_BB == -Inf] = 0
+  data$TEAM_PITCHING_SO[data$TEAM_PITCHING_SO == -Inf] = 0
+  
+  return(data)
+}
+
+# function that modernizes the data
+modernize = function(data_3){
+  data_3 = data_3/162
+  
+  # function that creates flags from ranges given.
+  is_modern = function(x, lower, upper){
+    flag = ifelse(x >= lower & x <= upper, 0, 1)
+    return(flag)
+  }
+  
+  # creating flag variables for each production variables
+  data_3$modern_hits = is_modern(data_3$TEAM_BATTING_H, 8.25, 9.3)
+  data_3$modern_2b = is_modern(data_3$TEAM_BATTING_2B, 1.65, 1.9)
+  data_3$modern_3b = is_modern(data_3$TEAM_BATTING_3B, .15, .19)
+  data_3$modern_hr = is_modern(data_3$TEAM_BATTING_HR, .85, 1.3)
+  data_3$modern_bb = is_modern(data_3$TEAM_BATTING_BB, 2.88, 3.6)
+  data_3$modern_so = is_modern(data_3$TEAM_BATTING_SO, 6.4, 8.9)
+  data_3$modern_sb = is_modern(data_3$TEAM_BASERUN_SB, .5, .7)
+  data_3$modern_cs = is_modern(data_3$TEAM_BASERUN_CS, .16, .3)
+  data_3$modern_e = is_modern(data_3$TEAM_FIELDING_E, .55, .7)
+  data_3$modern_dp = is_modern(data_3$TEAM_FIELDING_DP, .85, .95)
+  
+  # creating the MODERN variable
+  data_3$MODERN = ifelse(rowSums(data_3[ , 20:29]) == 10, 1, 0)
+  
+  return(data_3$MODERN)
+}
+
+```  
+
+```{r echo=FALSE}
+data_3 = read.csv('./MoneyBall.csv')
+data_3$INDEX = NULL
+data_3$TEAM_BATTING_HBP = NULL
+data_3 = data_3/162
+
+data_3 = clean_and_transform(data_3)
+
+# function that creates flags from ranges given.
+is_modern = function(x, lower, upper){
+  flag = ifelse(x >= lower & x <= upper, 0, 1)
+  return(flag)
+}
+
+# creating flag variables for each production variables
+data_3$modern_hits = is_modern(data_3$TEAM_BATTING_H, 8.25, 9.3)
+data_3$modern_2b = is_modern(data_3$TEAM_BATTING_2B, 1.65, 1.9)
+data_3$modern_3b = is_modern(data_3$TEAM_BATTING_3B, .15, .19)
+data_3$modern_hr = is_modern(data_3$TEAM_BATTING_HR, .85, 1.3)
+data_3$modern_bb = is_modern(data_3$TEAM_BATTING_BB, 2.88, 3.6)
+data_3$modern_so = is_modern(data_3$TEAM_BATTING_SO, 6.4, 8.9)
+data_3$modern_sb = is_modern(data_3$TEAM_BASERUN_SB, .5, .7)
+data_3$modern_cs = is_modern(data_3$TEAM_BASERUN_CS, .16, .3)
+data_3$modern_e = is_modern(data_3$TEAM_FIELDING_E, .55, .7)
+data_3$modern_dp = is_modern(data_3$TEAM_FIELDING_DP, .85, .95)
+
+# creating the MODERN variable
+data_3$MODERN = ifelse(rowSums(data_3[ , 16:25]) == 10, 1, 0)
+
+# fitting the regression
+fit3 = lm(TARGET_WINS ~., data = data_3[data_3$MODERN == 1, 1:15])
+
+summary(fit3)
+
+mean_Y = mean(data_3$TARGET_WINS[data_3$MODERN == 0])
+
+## ranges used, taken from https://www.baseball-reference.com/
+
+#batting _hits = 8.25, 9.3
+#batting_2B = 1.65, 1.9
+#batting_3B = .15, .19
+#batting_hr = .85, 1.3
+#batting_bb = 2.88, 3.6
+#batting_so = 6.4, 8.9
+#baserun_sb = .5, .7
+#baserun_cs = .16, .3
+#fielding_e = .55, .7
+#fielding_dp = .85, .95
+```  
+
+The output of the regression shows that not all the variables have a significant impact on *TARGET_WINS*. Only the variables *TEAM_BATTING_2B*, *TEAM_BATTING_3B*, *TEAM_BATTING_SO*, *TEAM_BASERUN_SB*, *TEAM_PITCHING_SO*, *TEAM_FIELDING_E* and *TEAM_FIELDING_DP* are significant at the 5% level of significance. The model is thus as follows:
+
+TARGET_WINS = 0.64 + 0.07 TEAM_BATTING_2B+ 0.16  TEAM_BATTING_3B - 0.14 TEAM_BATTING_SO + 0.49  log(TEAM_PITCHING_SO) + .11 TEAM_BASERUN_SB- .25  log(TEAM_FIELDING_E) - 0.15 TEAM_FIELDING_DP$, if MODERN = 1  
+
+TARGET_WINS = .50, if MODERN = 0
+
+  
+
+The coefficients are interpreted as before. The signs of the coefficients are all in association with our expectations.
+The adjusted $R^2$ value has increased! Its value of .54 says that almost 55% of the variation in *TARGET_WINS* can be explained by the model.
+
+
+
+## TASK 4 - Comparing Model Performance  {.tabset .tabset-fade .tabset-pills}
+
+
+```{r echo=FALSE}
+data = read.csv('./MoneyBall.csv')
+
+mean_y = mean(data$TARGET_WINS)
+max_y = max(data$TARGET_WINS)
+min_y = min(data$TARGET_WINS)
+
+export_data = read.csv('./MoneyBall_EXPORT.csv')
+n = nrow(export_data)
+export_data$Y_MEAN = mean_y
+export_data$Y_RANDOM = runif(n, min_y, max_y)
+export_data = clean_and_transform(export_data)
+attach(export_data)
+export_data$Y_BASE = 73.45 + 0.045 * TEAM_BATTING_H - 
+  0.02 * TEAM_BATTING_2B+ 0.11 * TEAM_BATTING_3B + 
+  0.05 * TEAM_BATTING_HR + 0.01 * TEAM_BATTING_BB- 
+  0.005*  TEAM_BATTING_SO + 0.03 * TEAM_BASERUN_SB- 
+  9.95 * TEAM_FIELDING_E - 0.13 * TEAM_FIELDING_DP
+
+export_data$Y_PARSIMONY = 53.54 + 0.05 * TEAM_BATTING_H - 
+  0.02 * TEAM_BATTING_2B+ 0.11 * TEAM_BATTING_3B + 
+  0.03 * TEAM_BATTING_HR + 0.01 * TEAM_BATTING_BB + 
+  0.03 * TEAM_BASERUN_SB- 9.74 * TEAM_FIELDING_E
+
+export_data$MODERN = modernize(export_data)
+
+attach(export_data)
+export_data$Y_CONTEXTUAL = ifelse(MODERN == 1, 0.64 + 0.07 * TEAM_BATTING_2B/162+ 0.16 * TEAM_BATTING_3B/162 - 
+  0.14*  TEAM_BATTING_SO/162 + 0.49* TEAM_PITCHING_SO/162 + 
+  .11 * TEAM_BASERUN_SB/162- .25 * TEAM_FIELDING_E/162 - 
+  0.15* TEAM_FIELDING_DP/162, .50)
+export_data$Y_CONTEXTUAL = export_data$Y_CONTEXTUAL * 162
+
+attach(export_data)
+actual = read.csv('./MoneyBall_ACTUAL.csv')
+
+model_compare = data.frame('Y_ACTUAL' = actual$Y_Actual, Y_BASE, Y_CONTEXTUAL, Y_MEAN, Y_PARSIMONY, Y_RANDOM)
+
+Base = mean(abs(model_compare$Y_ACTUAL - model_compare$Y_BASE))
+Mean = mean(abs(model_compare$Y_ACTUAL - model_compare$Y_MEAN))
+Parsimony = mean(abs(model_compare$Y_ACTUAL - model_compare$Y_PARSIMONY))
+Contextual = mean(abs(model_compare$Y_ACTUAL - model_compare$Y_CONTEXTUAL))
+Random = mean(abs(model_compare$Y_ACTUAL - model_compare$Y_RANDOM))
+```  
+
+  
+```{r echo=FALSE}
+library(kableExtra)
+dt = data.frame('Base Model' = Base, 'Mean Model' = Mean,
+                'Parsimony Model' = Parsimony,
+                'Contextual Model' = Contextual,
+                'Random Model' = Random,
+                row.names = 'MAD')
+kable(dt,
+      caption = 'Mean Absolute Deviations(MAD)
+      of the different models.') %>%
+  kable_styling(bootstrap_options = c("striped",
+                                      "hold_position"))
+```  
+
+
+We observe from the table that the *Base Model* has the lowest Mean Absolute Deviation(MAD) and the *Random Model* has the highest. It should be noted that lesser the value of MAD, the better the fit. So, it may be safe to say that the *Base Model* fits the data the best of the five models considered. On the other hand, the *Random Model* has the worst performance.  
+We also observe that the performances of the *Mean, Parsimony and Contextual* models are quite similar in that they have very close MAD values.  
+
+
+## TASK 5 - My Model {.tabset .tabset-fade .tabset-pills}
+
+
+```{r echo=FALSE}
+export_data = read.csv('./MoneyBall_EXPORT.csv')
+export_data = clean_and_transform(export_data)
+attach(export_data)
+Y_WATCHER = 53.54 + 0.05 * TEAM_BATTING_H - 
+  0.02 * TEAM_BATTING_2B+ 0.11 * TEAM_BATTING_3B + 
+  0.03 * TEAM_BATTING_HR + 0.01 * TEAM_BATTING_BB + 
+  0.03 * TEAM_BASERUN_SB- 9.74 * TEAM_FIELDING_E
+
+to_export = data.frame('INDEX' = export_data[, 1], Y_WATCHER)
+write.csv(to_export, file = 'Project1_Watcher.csv', row.names = F)
+```  
+
+To sum up, we did the following in this project.  
+
+### Explarotary Data Analysis  
+
+We dissected the data, plotted the histograms of the variables and observed the relationship between the variables. We imputed the missing values by mean or median based on the spread of the variable. We also transformed the highly skewed variables logarithmically to be able to fit them in the models.
+
+### Models  
+
+In particular, we compared five models and observed their performances on the data. We saw that the base model selected according to the *Backward Selection* method gave the best results.  
+However we are selecting the Parsimony model as the *best model*. This was obtained by pruning the irrelevant variables of the *Base Model*. We select this model because it makes the most sense and also has a reasonable mean absolute deviation. **Our chosen model is:**  
+
+TARGET_WINS = 53.54 + 0.05 TEAM_BATTING_H - 0.02  TEAM_BATTING_2B+ 0.11 TEAM_BATTING_3B + 0.03 TEAM_BATTING_HR + 0.01 TEAM_BATTING_BB + 0.03 TEAM_BASERUN_SB- 9.74  log(TEAM_FIELDING_E)  
+
+In this model, all the coefficients are mostly intuitive and in association with our expectations. For example, the coefficients of *Hits, Walks and Stolen Bases* are positive. This mean that wins should increase as these variables increase. This makes sense. On the other hand, the coefficient of *Fielding Error* is negative which indicates that wins will decrease if Fielding errors increase. This is also very intuitive. The only anomaly in the model is the *Double Base Hits* which should have a positive coefficient but is negative in the model. Although the value of the coefficient is very small, .02, it is rather counter-intuitive. This may be due to the fact that the particular games in the dataset had seen more losses for teams with Doubles! This may happen in a real life situation. However, finding the exact reason would require further analysis which is beyond the scope of this project. We are retaining this variable in the model as of now.  
+
+Our model gives an MAD value of 12.54 which is rather good. 
+We can thus predict Wins of a Baseball Team in a season given their Batting, Pitching and Fielding statistics with our Parsimony model.
+
+##
+
+This was the Moneyball Analysis project.
+
+* * *
+
+## Appendix: Codes {.tabset .tabset-fade .tabset-pills}
+
+```{r, include=T, eval=F}
+library(DataExplorer)
+
+data = read.csv('./MoneyBall.csv')
+str(data)
+data$INDEX = NULL
+
+plot_histogram(data[,1:4], title = 'Fig-1:Histograms of the predictors')
+plot_histogram(data[,5:8])
+plot_histogram(data[,9:12])
+plot_histogram(data[,13:16])
+
+summary(data)
+boxplot(data, las = 2, main = 'Fig-2: Boxplots of the predictors')
+```  
+
+
+```{r, include=T, eval=F}
+plot_missing(data, title = 'Fig-3: Missing value proportions')
+
+# treating missing values
+# function to replace missing values by mean or median
+replace_by_function = function(variable, FUN){
+  variable[is.na(variable)] = FUN(variable, na.rm = T)
+  return(variable)
+}
+
+data$TEAM_BATTING_SO = replace_by_function(data$TEAM_BATTING_SO, mean)
+data$TEAM_PITCHING_SO = replace_by_function(data$TEAM_PITCHING_SO, median)
+data$TEAM_BASERUN_SB = replace_by_function(data$TEAM_BASERUN_SB, median)
+data$TEAM_FIELDING_DP = replace_by_function(data$TEAM_FIELDING_DP, mean)
+data$TEAM_BASERUN_CS = replace_by_function(data$TEAM_BASERUN_CS, mean)
+
+data$TEAM_BATTING_HBP = NULL
+
+data$TEAM_PITCHING_H = log(data$TEAM_PITCHING_H)
+data$TEAM_PITCHING_SO = log(data$TEAM_PITCHING_SO)
+data$TEAM_PITCHING_BB = log(data$TEAM_PITCHING_BB)
+data$TEAM_FIELDING_E = log(data$TEAM_FIELDING_E)
+
+data$TEAM_PITCHING_BB[data$TEAM_PITCHING_BB == -Inf] = 0
+data$TEAM_PITCHING_SO[data$TEAM_PITCHING_SO == -Inf] = 0
+
+
+boxplot(data, col = 'dark grey', las = 2,
+        main = 'Fig-4: Boxplots of the transformed predictors')
+```  
+
+
+```{r, include=T, eval=F}
+plot_scatterplot(data, by = 'TARGET_WINS')
+plot_correlation(data, title = 'Fig-5: Correlation matrix')
+
+fit = lm(TARGET_WINS ~ ., data = data)
+base_model = stepAIC(fit, direction = 'backward')
+summary(base_model)
+```  
+
+
+```{r, include=T, eval=F}
+parsimony_data = data[ , c(1:8, 14, 15)]
+plot_correlation(parsimony_data, title = 'Fig-6: Correlation Matrix of Base Model Predictors')
+
+parsimony_data = parsimony_data[ , -c(7, 10)]
+
+fit2 = lm(TARGET_WINS ~ ., data = parsimony_data)
+summary(fit2)
+```  
+
+
+```{r, include=T, eval=F}
+## HELPER FUNCTIONS
+# function that cleans the data, replaces Null values by mean/median
+# takes log of the skewed variables.
+
+clean_and_transform = function(data){
+  # treating missing values
+  # function to replace missing values by mean or median
+  replace_by_function = function(variable, FUN){
+    variable[is.na(variable)] = FUN(variable, na.rm = T)
+    return(variable)
+  }
+  
+  # replacing the missing values
+  data$TEAM_BATTING_SO = replace_by_function(data$TEAM_BATTING_SO, mean)
+  data$TEAM_PITCHING_SO = replace_by_function(data$TEAM_PITCHING_SO, median)
+  data$TEAM_BASERUN_SB = replace_by_function(data$TEAM_BASERUN_SB, median)
+  data$TEAM_FIELDING_DP = replace_by_function(data$TEAM_FIELDING_DP, mean)
+  data$TEAM_BASERUN_CS = replace_by_function(data$TEAM_BASERUN_CS, mean)
+  
+  # transforming the variables logarithmically
+  data$TEAM_PITCHING_H = log(data$TEAM_PITCHING_H)
+  data$TEAM_PITCHING_SO = log(data$TEAM_PITCHING_SO)
+  data$TEAM_PITCHING_BB = log(data$TEAM_PITCHING_BB)
+  data$TEAM_FIELDING_E = log(data$TEAM_FIELDING_E)
+  
+  data$TEAM_PITCHING_BB[data$TEAM_PITCHING_BB == -Inf] = 0
+  data$TEAM_PITCHING_SO[data$TEAM_PITCHING_SO == -Inf] = 0
+  
+  return(data)
+}
+
+# function that modernizes the data
+modernize = function(data_3){
+  data_3 = data_3/162
+  
+  # function that creates flags from ranges given.
+  is_modern = function(x, lower, upper){
+    flag = ifelse(x >= lower & x <= upper, 0, 1)
+    return(flag)
+  }
+  
+  # creating flag variables for each production variables
+  data_3$modern_hits = is_modern(data_3$TEAM_BATTING_H, 8.25, 9.3)
+  data_3$modern_2b = is_modern(data_3$TEAM_BATTING_2B, 1.65, 1.9)
+  data_3$modern_3b = is_modern(data_3$TEAM_BATTING_3B, .15, .19)
+  data_3$modern_hr = is_modern(data_3$TEAM_BATTING_HR, .85, 1.3)
+  data_3$modern_bb = is_modern(data_3$TEAM_BATTING_BB, 2.88, 3.6)
+  data_3$modern_so = is_modern(data_3$TEAM_BATTING_SO, 6.4, 8.9)
+  data_3$modern_sb = is_modern(data_3$TEAM_BASERUN_SB, .5, .7)
+  data_3$modern_cs = is_modern(data_3$TEAM_BASERUN_CS, .16, .3)
+  data_3$modern_e = is_modern(data_3$TEAM_FIELDING_E, .55, .7)
+  data_3$modern_dp = is_modern(data_3$TEAM_FIELDING_DP, .85, .95)
+  
+  # creating the MODERN variable
+  data_3$MODERN = ifelse(rowSums(data_3[ , 20:29]) == 10, 1, 0)
+  
+  return(data_3$MODERN)
+}
+```  
+
+
+```{r, include=T, eval=F}
+data_3 = read.csv('./MoneyBall.csv')
+data_3$INDEX = NULL
+data_3$TEAM_BATTING_HBP = NULL
+data_3 = data_3/162
+
+data_3 = clean_and_transform(data_3)
+
+# function that creates flags from ranges given.
+is_modern = function(x, lower, upper){
+  flag = ifelse(x >= lower & x <= upper, 0, 1)
+  return(flag)
+}
+
+# creating flag variables for each production variables
+data_3$modern_hits = is_modern(data_3$TEAM_BATTING_H, 8.25, 9.3)
+data_3$modern_2b = is_modern(data_3$TEAM_BATTING_2B, 1.65, 1.9)
+data_3$modern_3b = is_modern(data_3$TEAM_BATTING_3B, .15, .19)
+data_3$modern_hr = is_modern(data_3$TEAM_BATTING_HR, .85, 1.3)
+data_3$modern_bb = is_modern(data_3$TEAM_BATTING_BB, 2.88, 3.6)
+data_3$modern_so = is_modern(data_3$TEAM_BATTING_SO, 6.4, 8.9)
+data_3$modern_sb = is_modern(data_3$TEAM_BASERUN_SB, .5, .7)
+data_3$modern_cs = is_modern(data_3$TEAM_BASERUN_CS, .16, .3)
+data_3$modern_e = is_modern(data_3$TEAM_FIELDING_E, .55, .7)
+data_3$modern_dp = is_modern(data_3$TEAM_FIELDING_DP, .85, .95)
+
+# creating the MODERN variable
+data_3$MODERN = ifelse(rowSums(data_3[ , 16:25]) == 10, 1, 0)
+
+# fitting the regression
+fit3 = lm(TARGET_WINS ~., data = data_3[data_3$MODERN == 1, 1:15])
+
+summary(fit3)
+
+mean_Y = mean(data_3$TARGET_WINS[data_3$MODERN == 0])
+
+## ranges used, taken from https://www.baseball-reference.com/
+
+#batting _hits = 8.25, 9.3
+#batting_2B = 1.65, 1.9
+#batting_3B = .15, .19
+#batting_hr = .85, 1.3
+#batting_bb = 2.88, 3.6
+#batting_so = 6.4, 8.9
+#baserun_sb = .5, .7
+#baserun_cs = .16, .3
+#fielding_e = .55, .7
+#fielding_dp = .85, .95
+```  
+
+
+```{r, include=T, eval=F}
+data = read.csv('./MoneyBall.csv')
+
+mean_y = mean(data$TARGET_WINS)
+max_y = max(data$TARGET_WINS)
+min_y = min(data$TARGET_WINS)
+
+export_data = read.csv('./MoneyBall_EXPORT.csv')
+n = nrow(export_data)
+export_data$Y_MEAN = mean_y
+export_data$Y_RANDOM = runif(n, min_y, max_y)
+export_data = clean_and_transform(export_data)
+attach(export_data)
+export_data$Y_BASE = 73.45 + 0.045 * TEAM_BATTING_H - 
+  0.02 * TEAM_BATTING_2B+ 0.11 * TEAM_BATTING_3B + 
+  0.05 * TEAM_BATTING_HR + 0.01 * TEAM_BATTING_BB- 
+  0.005*  TEAM_BATTING_SO + 0.03 * TEAM_BASERUN_SB- 
+  9.95 * TEAM_FIELDING_E - 0.13 * TEAM_FIELDING_DP
+
+export_data$Y_PARSIMONY = 53.54 + 0.05 * TEAM_BATTING_H - 
+  0.02 * TEAM_BATTING_2B+ 0.11 * TEAM_BATTING_3B + 
+  0.03 * TEAM_BATTING_HR + 0.01 * TEAM_BATTING_BB + 
+  0.03 * TEAM_BASERUN_SB- 9.74 * TEAM_FIELDING_E
+
+export_data$MODERN = modernize(export_data)
+
+attach(export_data)
+export_data$Y_CONTEXTUAL = ifelse(MODERN == 1, 0.64 + 0.07 * TEAM_BATTING_2B/162+ 0.16 * TEAM_BATTING_3B/162 - 
+  0.14*  TEAM_BATTING_SO/162 + 0.49* TEAM_PITCHING_SO/162 + 
+  .11 * TEAM_BASERUN_SB/162- .25 * TEAM_FIELDING_E/162 - 
+  0.15* TEAM_FIELDING_DP/162, .50)
+export_data$Y_CONTEXTUAL = export_data$Y_CONTEXTUAL * 162
+
+attach(export_data)
+actual = read.csv('./MoneyBall_ACTUAL.csv')
+
+model_compare = data.frame('Y_ACTUAL' = actual$Y_Actual, Y_BASE, Y_CONTEXTUAL, Y_MEAN, Y_PARSIMONY, Y_RANDOM)
+
+Base = mean(abs(model_compare$Y_ACTUAL - model_compare$Y_BASE))
+Mean = mean(abs(model_compare$Y_ACTUAL - model_compare$Y_MEAN))
+Parsimony = mean(abs(model_compare$Y_ACTUAL - model_compare$Y_PARSIMONY))
+Contextual = mean(abs(model_compare$Y_ACTUAL - model_compare$Y_CONTEXTUAL))
+Random = mean(abs(model_compare$Y_ACTUAL - model_compare$Y_RANDOM))
+```  
+
+
+```{r, include=T, eval=F}
+library(kableExtra)
+dt = data.frame('Base Model' = Base, 'Mean Model' = Mean,
+                'Parsimony Model' = Parsimony,
+                'Contextual Model' = Contextual,
+                'Random Model' = Random,
+                row.names = 'MAD')
+kable(dt, format = 'latex', booktabs = T,
+      caption = 'Mean Absolute Deviations(MAD)
+      of the different models.') %>%
+  kable_styling(latex_options = c("striped", "hold_position"))
+```  
+
+
+```{r, include=T, eval=F}
+export_data = read.csv('./MoneyBall_EXPORT.csv')
+export_data = clean_and_transform(export_data)
+attach(export_data)
+Y_WATCHER = 53.54 + 0.05 * TEAM_BATTING_H - 
+  0.02 * TEAM_BATTING_2B+ 0.11 * TEAM_BATTING_3B + 
+  0.03 * TEAM_BATTING_HR + 0.01 * TEAM_BATTING_BB + 
+  0.03 * TEAM_BASERUN_SB- 9.74 * TEAM_FIELDING_E
+
+to_export = data.frame('INDEX' = export_data[, 1], Y_WATCHER)
+write.csv(to_export, file = 'Project1_Watcher.csv', row.names = F)
+```
+
+
